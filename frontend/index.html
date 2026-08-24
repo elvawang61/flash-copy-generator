@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>快闪打卡文案生成器</title>
+    <style>
+        /* ========== 基础重置 ========== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background: linear-gradient(135deg, #ff2442 0%, #ff6b81 50%, #ff8e53 100%);
+            min-height: 100vh;
+            color: #1d1d1f;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ========== 页面容器 ========== */
+        .page {
+            max-width: 420px;
+            margin: 0 auto;
+            padding: 40px 20px 30px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ========== 活动头部 ========== */
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 24px;
+        }
+        .header .brand-icon { font-size: 36px; margin-bottom: 8px; }
+        .header h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+        .header .location { font-size: 14px; opacity: 0.85; }
+        .header .period { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+
+        /* ========== 卡片通用 ========== */
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 24px 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+
+        /* ========== 状态一：生成按钮 ========== */
+        .generate-section { text-align: center; padding: 32px 20px; }
+        .generate-section .desc {
+            font-size: 15px;
+            color: #666;
+            line-height: 1.7;
+            margin-bottom: 28px;
+        }
+        .btn-generate {
+            display: block;
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, #ff2442, #ff6b81);
+            color: white;
+            border: none;
+            border-radius: 16px;
+            font-size: 17px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+            box-shadow: 0 4px 15px rgba(255,36,66,0.35);
+        }
+        .btn-generate:active { transform: scale(0.96); }
+        .btn-generate:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* ========== Loading 状态 ========== */
+        .loading-overlay {
+            display: none;
+            text-align: center;
+            padding: 40px 20px;
+        }
+        .loading-overlay.active { display: block; }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f0f0f2;
+            border-top-color: #ff2442;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { font-size: 15px; color: #666; }
+
+        /* ========== 状态二：文案展示 ========== */
+        .copy-section { display: none; }
+        .copy-section.active { display: block; }
+        .copy-label {
+            font-size: 13px;
+            color: #999;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .copy-box {
+            background: #f8f8fa;
+            border-radius: 14px;
+            padding: 18px;
+            font-size: 15px;
+            line-height: 1.9;
+            color: #333;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-bottom: 16px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .copy-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .btn-regenerate {
+            flex: 1;
+            padding: 14px;
+            background: #f0f0f2;
+            color: #555;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .btn-regenerate:active { transform: scale(0.96); }
+        .btn-copy {
+            flex: 1;
+            padding: 14px;
+            background: #f0f0f2;
+            color: #555;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .btn-copy:active { transform: scale(0.96); }
+        .btn-publish {
+            display: block;
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, #ff2442, #ff6b81);
+            color: white;
+            border: none;
+            border-radius: 16px;
+            font-size: 17px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255,36,66,0.35);
+            transition: transform 0.15s;
+        }
+        .btn-publish:active { transform: scale(0.96); }
+        .publish-hint {
+            text-align: center;
+            font-size: 12px;
+            color: #999;
+            margin-top: 10px;
+            line-height: 1.6;
+        }
+
+        /* ========== 状态三：出示核验 ========== */
+        .verify-section { display: none; }
+        .verify-section.active { display: block; }
+        .verify-success {
+            text-align: center;
+            padding: 8px 0 16px;
+        }
+        .verify-success .check-icon {
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, #34c759, #30d158);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 12px;
+            font-size: 32px;
+            color: white;
+            box-shadow: 0 4px 16px rgba(52,199,89,0.3);
+        }
+        .verify-success h2 {
+            font-size: 20px;
+            font-weight: 700;
+            color: #1d1d1f;
+            margin-bottom: 4px;
+        }
+        .verify-success .sub {
+            font-size: 14px;
+            color: #888;
+        }
+        .verify-card {
+            background: linear-gradient(135deg, #f0fff4, #f0f8ff);
+            border: 2px solid #34c759;
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        .verify-card .verify-label {
+            font-size: 15px;
+            font-weight: 600;
+            color: #34c759;
+            margin-bottom: 8px;
+        }
+        .verify-card .verify-instruction {
+            font-size: 14px;
+            color: #555;
+            line-height: 1.7;
+            margin-bottom: 12px;
+        }
+        .verify-card .verify-time {
+            display: inline-block;
+            background: white;
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-size: 13px;
+            color: #888;
+        }
+        .verify-copy-preview {
+            background: #f8f8fa;
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 13px;
+            line-height: 1.8;
+            color: #666;
+            max-height: 120px;
+            overflow-y: auto;
+            margin-bottom: 16px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .btn-jump-xhs {
+            display: block;
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #ff2442, #ff6b81);
+            color: white;
+            border: none;
+            border-radius: 14px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255,36,66,0.3);
+            transition: transform 0.15s;
+            margin-bottom: 10px;
+        }
+        .btn-jump-xhs:active { transform: scale(0.96); }
+        .btn-restart {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            background: #f0f0f2;
+            color: #666;
+            border: none;
+            border-radius: 14px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .btn-restart:active { transform: scale(0.96); }
+
+        /* ========== Toast 提示 ========== */
+        .toast {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-size: 14px;
+            display: none;
+            z-index: 100;
+            text-align: center;
+            max-width: 280px;
+        }
+        .toast.active { display: block; }
+
+        /* ========== 错误提示 ========== */
+        .error-box {
+            display: none;
+            background: #fff0f3;
+            border: 1px solid #ffd0d8;
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            margin-top: 12px;
+        }
+        .error-box.active { display: block; }
+        .error-box p { font-size: 14px; color: #ff2442; margin-bottom: 12px; }
+        .btn-retry {
+            padding: 10px 24px;
+            background: #ff2442;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        /* ========== 底部信息 ========== */
+        .footer {
+            text-align: center;
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            margin-top: auto;
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="page">
+
+    <!-- ️ 活动头部（从 URL 参数读取） -->
+    <div class="header">
+        <div class="brand-icon">📕</div>
+        <h1 id="activityName">加载中...</h1>
+        <div class="location" id="activityLocation"></div>
+        <div class="period" id="activityPeriod"></div>
+    </div>
+
+    <!-- 状态一：生成按钮 -->
+    <div class="card generate-section" id="generateSection">
+        <div class="desc">扫码参与打卡活动<br>AI 帮你写一段小红书风格好评<br>发布后出示给工作人员即可领奖 🎁</div>
+        <button class="btn-generate" id="generateBtn" onclick="handleGenerate()">✨ 生成打卡文案</button>
+        <div class="error-box" id="errorBox">
+            <p id="errorMsg">生成失败，请重试</p>
+            <button class="btn-retry" onclick="handleGenerate()">重试</button>
+        </div>
+    </div>
+
+    <!-- Loading 状态 -->
+    <div class="card loading-overlay" id="loadingSection">
+        <div class="spinner"></div>
+        <div class="loading-text">AI 正在为你写文案...</div>
+    </div>
+
+    <!-- 状态二：文案展示 -->
+    <div class="card copy-section" id="copySection">
+        <div class="copy-label">📝 你的打卡文案</div>
+        <div class="copy-box" id="copyText"></div>
+        <div class="copy-actions">
+            <button class="btn-regenerate" onclick="handleRegenerate()"> 换一个</button>
+            <button class="btn-copy" onclick="handleCopy()">📋 复制文案</button>
+        </div>
+        <button class="btn-publish" onclick="handlePublish()">📕 去小红书发布</button>
+        <div class="publish-hint">点击后自动复制文案并跳转小红书<br>选照片 → 粘贴文案 → 发送即可</div>
+    </div>
+
+    <!-- 状态三：出示给工作人员核验 -->
+    <div class="verify-section" id="verifySection">
+        <div class="card">
+            <div class="verify-success">
+                <div class="check-icon">✓</div>
+                <h2>笔记已发布</h2>
+                <div class="sub">请将此页面出示给工作人员核验</div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="verify-card">
+                <div class="verify-label">📋 现场核验流程</div>
+                <div class="verify-instruction">
+                    1. 打开小红书 App 展示已发布的笔记<br>
+                    2. 工作人员确认笔记内容<br>
+                    3. 现场领取活动奖品 🎁
+                </div>
+                <div class="verify-time" id="publishTime">发布时间：--</div>
+            </div>
+            <div class="copy-label">📝 已发布的文案</div>
+            <div class="verify-copy-preview" id="verifyCopyText"></div>
+            <button class="btn-jump-xhs" onclick="jumpToXHS()">📕 打开小红书查看笔记</button>
+            <button class="btn-restart" onclick="handleRestart()">重新生成文案</button>
+        </div>
+    </div>
+
+    <div class="footer">快闪打卡文案生成器</div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+    // ========== 配置 ==========
+    // ️ 开发环境指向本地后端，生产环境改为正式域名
+    const API_BASE_URL = "https://rich-worlds-enjoy.loca.lt";
+
+    // ========== 从 URL 读取活动参数 ==========
+    const params = new URLSearchParams(window.location.search);
+    const activityInfo = {
+        name: params.get("name") || "快闪打卡活动",
+        period: params.get("period") || "",
+        location: params.get("location") || "",
+        features: params.get("features") || "",
+        prize: params.get("prize") || "",
+        tone: params.get("tone") || "",
+        tags: params.get("tags") || ""
+    };
+
+    // ========== 初始化页面 ==========
+    document.getElementById("activityName").textContent = activityInfo.name;
+    document.getElementById("activityLocation").textContent = activityInfo.location;
+    document.getElementById("activityPeriod").textContent = activityInfo.period;
+
+    // ========== 状态管理 ==========
+    let currentCopy = localStorage.getItem("currentCopy") || "";
+    let retryCount = parseInt(localStorage.getItem("retryCount") || "0");
+    let hasPublished = localStorage.getItem("hasPublished") === "true";
+
+    // ========== 页面加载时恢复状态 ==========
+    function restoreState() {
+        currentCopy = localStorage.getItem("currentCopy") || "";
+        hasPublished = localStorage.getItem("hasPublished") === "true";
+        const fromXhs = params.get("from") === "xhs";
+
+        if (fromXhs || hasPublished) {
+            // 从小红书回来或已标记发布 → 显示核验页
+            document.getElementById("verifyCopyText").textContent = currentCopy;
+            const savedTime = localStorage.getItem("publishTime") || "";
+            document.getElementById("publishTime").textContent = savedTime ? "发布时间：" + savedTime : "发布时间：" + new Date().toLocaleString("zh-CN");
+            showSection("verifySection");
+        } else if (currentCopy) {
+            document.getElementById("copyText").textContent = currentCopy;
+            showSection("copySection");
+        } else {
+            showSection("generateSection");
+        }
+    }
+
+    restoreState();
+
+    // ✅ 监听页面可见性变化（从小红书回来时触发）
+    document.addEventListener("visibilitychange", function() {
+        if (!document.hidden) {
+            restoreState();
+        }
+    });
+
+    // ✅ 监听 pageshow（处理浏览器 bfcache 恢复）
+    window.addEventListener("pageshow", function(event) {
+        restoreState();
+    });
+
+    // ========== 显示/隐藏区域 ==========
+    function showSection(id) {
+        ["generateSection", "loadingSection", "copySection", "verifySection"].forEach(s => {
+            document.getElementById(s).classList.remove("active");
+        });
+        document.getElementById(id).classList.add("active");
+    }
+
+    function showToast(msg, duration) {
+        const toast = document.getElementById("toast");
+        toast.textContent = msg;
+        toast.classList.add("active");
+        setTimeout(() => toast.classList.remove("active"), duration || 2000);
+    }
+
+    function showError(msg) {
+        document.getElementById("errorMsg").textContent = msg;
+        document.getElementById("errorBox").classList.add("active");
+    }
+
+    function hideError() {
+        document.getElementById("errorBox").classList.remove("active");
+    }
+
+    // ========== 调用后端 API 生成文案 ==========
+    async function callGenerateAPI() {
+        const response = await fetch(API_BASE_URL + "/api/generate", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Bypass-Tunnel-Reminder": "true"
+            },
+            body: JSON.stringify(activityInfo)
+        });
+        const data = await response.json();
+        return data;
+    }
+
+    // ========== 点击"生成文案" ==========
+    async function handleGenerate() {
+        hideError();
+        retryCount++;
+
+        if (retryCount > 3) {
+            showError("多次生成失败，请稍后再试");
+            return;
+        }
+
+        showSection("loadingSection");
+
+        try {
+            const result = await callGenerateAPI();
+
+            if (result.success) {
+                currentCopy = result.text;
+                localStorage.setItem("currentCopy", currentCopy);
+                document.getElementById("copyText").textContent = currentCopy;
+                showSection("copySection");
+            } else {
+                showSection("generateSection");
+                showError(result.error || "生成失败，请重试");
+            }
+        } catch (e) {
+            showSection("generateSection");
+            showError("网络连接失败，请检查网络后重试");
+        }
+    }
+
+    // ========== 点击"换一个" ==========
+    function handleRegenerate() {
+        retryCount = 0;
+        handleGenerate();
+    }
+
+    // ========== 复制文案到剪贴板 ==========
+    async function handleCopy() {
+        if (!currentCopy) return;
+
+        try {
+            await navigator.clipboard.writeText(currentCopy);
+            showToast("✅ 文案已复制");
+        } catch (e) {
+            // 降级方案
+            const textarea = document.createElement("textarea");
+            textarea.value = currentCopy;
+            textarea.style.position = "fixed";
+            textarea.style.opacity = "0";
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand("copy");
+            document.body.removeChild(textarea);
+            showToast("✅ 文案已复制");
+        }
+    }
+
+    // ========== 点击"去小红书发布" ==========
+    async function handlePublish() {
+        if (!currentCopy) return;
+
+        // 1️⃣ 先复制文案到剪贴板
+        try {
+            await navigator.clipboard.writeText(currentCopy);
+        } catch (e) {
+            const textarea = document.createElement("textarea");
+            textarea.value = currentCopy;
+            textarea.style.position = "fixed";
+            textarea.style.opacity = "0";
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand("copy");
+            document.body.removeChild(textarea);
+        }
+
+        // 2️⃣ 记录发布时间和状态（用户从小红书返回后自动显示核验页）
+        localStorage.setItem("hasPublished", "true");
+        localStorage.setItem("publishTime", new Date().toLocaleString("zh-CN"));
+
+        showToast("文案已复制，正在跳转小红书...", 1200);
+
+        // 3️⃣ 直接跳转小红书照片选择页
+        setTimeout(() => {
+            window.location.href = "xhsdiscover://post";
+        }, 1200);
+    }
+
+    // ========== 打开小红书查看笔记 ==========
+    function jumpToXHS() {
+        window.location.href = "xhsdiscover://post";
+    }
+
+    // ========== 重新生成文案（清除状态） ==========
+    function handleRestart() {
+        localStorage.removeItem("currentCopy");
+        localStorage.removeItem("hasPublished");
+        localStorage.removeItem("publishTime");
+        currentCopy = "";
+        hasPublished = false;
+        retryCount = 0;
+        // 清除 URL 中的 from=xhs 参数
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.delete("from");
+        window.history.replaceState({}, "", currentUrl.toString());
+        showSection("generateSection");
+    }
+</script>
+
+</body>
+</html>
