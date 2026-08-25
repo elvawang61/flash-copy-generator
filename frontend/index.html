@@ -91,7 +91,37 @@
             margin: 0 auto 16px;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .loading-text { font-size: 15px; color: #666; }
+        .loading-text {
+            font-size: 15px;
+            color: #666;
+            transition: opacity 0.3s;
+        }
+        .streaming-text {
+            margin-top: 16px;
+            font-size: 15px;
+            line-height: 1.9;
+            color: #333;
+            text-align: left;
+            background: #f8f8fa;
+            border-radius: 14px;
+            padding: 18px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 260px;
+            overflow-y: auto;
+            display: none;
+        }
+        .streaming-text.active { display: block; }
+        .streaming-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 16px;
+            background: #ff2442;
+            margin-left: 2px;
+            vertical-align: text-bottom;
+            animation: blink 0.6s step-end infinite;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
 
         /* ========== 状态二：文案展示 ========== */
         .copy-section { display: none; }
@@ -348,7 +378,8 @@
     <!-- Loading 状态 -->
     <div class="card loading-overlay" id="loadingSection">
         <div class="spinner"></div>
-        <div class="loading-text">AI 正在为你写文案...</div>
+        <div class="loading-text" id="loadingText">AI 正在为你写文案...</div>
+        <div class="streaming-text" id="streamingText"></div>
     </div>
 
     <!-- 状态二：文案展示 -->
@@ -481,18 +512,75 @@
         document.getElementById("errorBox").classList.remove("active");
     }
 
-    // ========== 调用后端 API 生成文案 ==========
+    // ========== 调用后端 API（流式接收） ==========
     async function callGenerateAPI() {
         const response = await fetch(API_BASE_URL + "/api/generate", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Bypass-Tunnel-Reminder": "true"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(activityInfo)
         });
-        const data = await response.json();
-        return data;
+
+        // 非流式错误响应（如 API Key 未配置、服务器错误）
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.error || "服务器错误");
+        }
+
+        const contentType = response.headers.get("content-type") || "";
+
+        // 流式 SSE 响应
+        if (contentType.includes("text/event-stream")) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = "";
+            const streamingEl = document.getElementById("streamingText");
+            const loadingEl = document.getElementById("loadingText");
+
+            // 显示流式文本区域，隐藏 spinner
+            streamingEl.classList.add("active");
+            loadingEl.style.opacity = "0";
+
+            // 分步进度提示轮播
+            const tips = ["正在分析活动亮点...", "正在构思标题...", "正在打磨文案..."];
+            let tipIndex = 0;
+            const tipTimer = setInterval(() => {
+                tipIndex = (tipIndex + 1) % tips.length;
+                loadingEl.textContent = tips[tipIndex];
+                loadingEl.style.opacity = "1";
+            }, 4000);
+
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split("\n");
+
+                    for (const line of lines) {
+                        if (line.startsWith("data: ")) {
+                            const data = line.slice(6).trim();
+                            if (data === "[DONE]") continue;
+                            try {
+                                const parsed = JSON.parse(data);
+                                if (parsed.content) {
+                                    fullText += parsed.content;
+                                    streamingEl.innerHTML = fullText + '<span class="streaming-cursor"></span>';
+                                    streamingEl.scrollTop = streamingEl.scrollHeight;
+                                }
+                            } catch (e) { /* 跳过无法解析的行 */ }
+                        }
+                    }
+                }
+            } finally {
+                clearInterval(tipTimer);
+            }
+
+            return { success: true, text: fullText };
+        }
+
+        // 降级：非流式 JSON 响应
+        return await response.json();
     }
 
     // ========== 点击"生成文案" ==========
@@ -505,12 +593,20 @@
             return;
         }
 
+        // 重置 loading 状态
+        const loadingEl = document.getElementById("loadingText");
+        const streamingEl = document.getElementById("streamingText");
+        loadingEl.textContent = "AI 正在为你写文案...";
+        loadingEl.style.opacity = "1";
+        streamingEl.classList.remove("active");
+        streamingEl.innerHTML = "";
+
         showSection("loadingSection");
 
         try {
             const result = await callGenerateAPI();
 
-            if (result.success) {
+            if (result.success && result.text) {
                 currentCopy = result.text;
                 localStorage.setItem("currentCopy", currentCopy);
                 document.getElementById("copyText").textContent = currentCopy;
@@ -521,13 +617,17 @@
             }
         } catch (e) {
             showSection("generateSection");
-            showError("网络连接失败，请检查网络后重试");
+            showError(e.message || "网络连接失败，请检查网络后重试");
         }
     }
 
     // ========== 点击"换一个" ==========
     function handleRegenerate() {
         retryCount = 0;
+        document.getElementById("streamingText").innerHTML = "";
+        document.getElementById("streamingText").classList.remove("active");
+        document.getElementById("loadingText").textContent = "AI 正在为你写文案...";
+        document.getElementById("loadingText").style.opacity = "1";
         handleGenerate();
     }
 
